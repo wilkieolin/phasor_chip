@@ -2,7 +2,16 @@ import pandas as pd
 import numpy as np
 from scipy import optimize
 
+"""
+LAMBDAS / ALIASES
+"""
 dbm = lambda x: 10 *  np.log10(x)
+remap_phase = lambda x: np.mod(x, 2 * np.pi)
+euler = lambda x: np.exp(0.0+1.0j * x)
+
+"""
+ELECTRICAL TEST FUNCTIONS
+"""
 
 def check_side(v: float):
     #which side are we grounding? n if V > 0, p if V < 0
@@ -198,3 +207,52 @@ def apply_voltages_and_seek(voltage_df,
     niter_df = pd.DataFrame({"n_iter" : np.array(niter)})
     output = pd.join([output, niter_df])
     return output
+
+"""
+THEORY / ANALYSIS FUNCTIONS
+"""
+def get_phases(weight, phase):
+    """
+    Given an angle (phase) and its magnitude (weight), compute the angles of two complex numbers
+    with magnitude one which can be combined to produced the desired value.
+    """
+    #find the angles we need to split the phase by to modulate by the weight
+    separation = np.arccos(weight)
+    top_phase = remap_phase(phase + separation)
+    bottom_phase = remap_phase(phase - separation)
+    
+    return (top_phase, bottom_phase)
+
+def generate_points(weights, phases):
+    """
+    Given a set of angles and magnitudes on the complex plane, generate the series of two phasor values
+    which can be added to produce the desired values.
+    """
+    array = []
+    
+    #get the angles necessary to superimpose to produce the right phase/weight
+    for p in phases:
+        array.append(get_phases(weights, p))
+            
+    #convert to numpy array
+    array = np.stack(array)
+    #reshape
+    array = rearrange(array, "a b c -> (a c) b")
+    return array
+
+
+def e_f(power, k, b, o_r, o_i):
+    """
+    Return the electrical field produced by an MZI at a given power input interfering with another wave
+    """
+    e = euler(k * power) + b
+
+    return e + o_r + o_i * 1.0j
+
+def p_f(power, k, b, o_r, o_i, peak, floor):
+    """
+    Return the power of the electric field produced by an MZI at a power interfering with another wave
+    """
+    measured = np.abs(e_f(power, k, b, o_r, o_i))
+    dbm = 10 * np.log10(np.power(10, peak / 10)*(measured) + np.power(10, floor / 10))
+    return dbm
